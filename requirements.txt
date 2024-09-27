@@ -1,0 +1,11 @@
+jupyter
+numpy==1.23.5
+decorator
+attrs
+transformers
+Pillow
+requests
+torch
+torchvision
+onnx
+mxnet
