@@ -45,9 +45,11 @@ def build_module(opts):
         func.params, relay.nn.softmax(func.body), None, func.type_params, func.attrs
     )
 
+    target = tvm.target.Target("c")
+
     for runtime, file_format_str in RUNTIMES:
         with tvm.transform.PassContext(opt_level=3, config={"tir.disable_vectorize": True}):
-            graph, lib, params = relay.build(func, "llvm", runtime=runtime, params=params)
+            graph, lib, params = relay.build(func, target=target, runtime=runtime, params=params)
 
         build_dir = os.path.abspath(opts.out_dir)
         if not os.path.isdir(build_dir):
@@ -62,7 +64,8 @@ def build_module(opts):
             # populated correctly when you do that). So for now, must continue to use save() with the
             # C++ library.
             # TODO(areusch): Obliterate runtime.cc and replace with libtvm_runtime.so.
-            lib.save(lib_file_name)
+            # lib.save(lib_file_name)
+            pass
         with open(
             os.path.join(build_dir, file_format_str.format(name="graph", ext="json")), "w"
         ) as f_graph_json:
