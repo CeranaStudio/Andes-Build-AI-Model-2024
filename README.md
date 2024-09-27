@@ -17,3 +17,27 @@ The repository is for compiling the AI model based on TVM in the 2024 Andes Awar
     # enter the build environment
     conda activate tvm-build-venv
     ```
+2. Install python packages
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+3. Download toolchain
+```bash
+cd toolchain
+
+./download.sh
+```
+
+4. Run the script
+    ```bash
+    ./init
+    ```
+
+## RUN
+
+```bash
+cd deploy
+
+make
+```
