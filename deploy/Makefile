@@ -183,8 +183,10 @@ $(build_dir)/bundle_static.o: bundle_static.c
 	$(QUIET)mkdir -p $(@D)
 	$(QUIET)$(CC) -c $(PKG_CFLAGS) -o $@  $^ $(BACKTRACE_CFLAGS) $(PKG_LDFLAGS)
 
-rebuild:
-	$(QUIER)rm -rf $(build_dir)/model_c/*.o
+rebuild: $(build_dir)/model_c/lib0.c $(build_dir)/model_c/lib1.c $(build_dir)/model_c/devc.c
+	$(QUIET)$(CXX) -c $(PKG_CXXFLAGS) build/model_c/lib0.c -o build/model_c/lib0.o  $(PKG_LDFLAGS)
+	$(QUIET)$(CXX) -c $(PKG_CXXFLAGS) build/model_c/lib1.c -o build/model_c/lib1.o  $(PKG_LDFLAGS)
+	$(QUIET)$(CXX) -c $(PKG_CXXFLAGS) build/model_c/devc.c -o build/model_c/devc.o  $(PKG_LDFLAGS)
 
 run: demo_static
 	$(QUIET)$(build_dir)/demo_static $(build_dir)/cat.bin
