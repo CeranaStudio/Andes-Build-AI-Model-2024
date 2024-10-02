@@ -33,6 +33,9 @@ toolchain_dir := $(shell cd ../toolchain; pwd)
 ifeq ($(RISCV),1)
 CC=${toolchain_dir}/nds64le-linux-glibc-v5d/bin/riscv64-linux-gcc
 CXX=${toolchain_dir}/nds64le-linux-glibc-v5d/bin/riscv64-linux-g++
+PKG_LDFLAGS = -pthread -lm -Wl,-T,${toolchain_dir}/ldscript -mext-dsp -static
+else
+PKG_LDFLAGS = -pthread -lm
 endif
 
 build_dir := build
@@ -52,9 +55,6 @@ PKG_CFLAGS = ${PKG_COMPILE_OPTS} \
 	-I${TVM_ROOT}/3rdparty/dlpack/include \
 	-I${tvm_build_dir}/crt_config \
 	-DDMLC_USE_LOGGING_LIBRARY=\<tvm/runtime/logging.h\>
-
-PKG_LDFLAGS = -pthread -lm -Wl,-T,${toolchain_dir}/ldscript -mext-dsp -static
-
 
 
 BACKTRACE_SRCS =
