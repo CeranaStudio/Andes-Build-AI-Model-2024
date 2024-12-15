@@ -20,6 +20,7 @@ import argparse
 import os
 import pathlib
 
+from mxnet import gluon
 from tvm import relay
 import tvm
 from tvm import runtime as tvm_runtime
@@ -35,11 +36,20 @@ RUNTIMES = [
 
 def build_module(opts):
     dshape = (1, 3, 224, 224)
-    from mxnet.gluon.model_zoo.vision import get_model
+    # from mxnet.gluon.model_zoo.vision import get_model
 
-    block = get_model("mobilenet0.25", pretrained=True)
+    # block = get_model("mobilenet0.25", pretrained=True)
+    curr_dir = os.getcwd()
+    symbol_file = os.path.join(curr_dir, "mobilenet_v2_0_25_custom.model-symbol.json")
+    params_file = os.path.join(curr_dir, "mobilenet_v2_0_25_custom.model-0000.params")
+
+    if not os.path.exists(symbol_file) or not os.path.exists(params_file):
+        raise FileNotFoundError("Model files not found")
+
+    load_net = gluon.nn.SymbolBlock.imports(symbol_file, ['data'], params_file)
+
     shape_dict = {"data": dshape}
-    mod, params = relay.frontend.from_mxnet(block, shape_dict)
+    mod, params = relay.frontend.from_mxnet(load_net, shape_dict)
     func = mod["main"]
     func = relay.Function(
         func.params, relay.nn.softmax(func.body), None, func.type_params, func.attrs
@@ -48,7 +58,7 @@ def build_module(opts):
     target = tvm.target.Target("c")
 
     for runtime, file_format_str in RUNTIMES:
-        with tvm.transform.PassContext(opt_level=3, config={"tir.disable_vectorize": True}):
+        with tvm.transform.PassContext(config={"tir.disable_vectorize": True}):
             graph, lib, params = relay.build(func, target=target, runtime=runtime, params=params)
 
         build_dir = os.path.abspath(opts.out_dir)
