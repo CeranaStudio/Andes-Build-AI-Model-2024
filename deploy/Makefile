@@ -17,7 +17,7 @@
 
 # Makefile Example to bundle TVM modules.
 
-RISCV=1
+RISCV ?= 0
 
 # Setup build environment
 TVM_ROOT=$(shell cd ../3rdparty/tvm; pwd)
@@ -66,7 +66,8 @@ BACKTRACE_LDFLAGS += -ldl
 BACKTRACE_CFLAGS += -DENABLE_TVM_PLATFORM_ABORT_BACKTRACE
 $(endif)
 
-BACKTRACE_OBJS = $(patsubst %.c,$(build_dir)/%.o,$(BACKTRACE_SRCS))
+BACKTRACE_OBJS_ALL = $(patsubst %.c,$(build_dir)/%.o,$(BACKTRACE_SRCS))
+BACKTRACE_OBJS = $(filter-out $(build_dir)/demo_static_ws.o, $(BACKTRACE_OBJS_ALL))
 
 $(ifeq VERBOSE,1)
 QUIET ?=
@@ -77,7 +78,7 @@ $(endif)
 MODEL_OBJ = $(build_dir)/model_c/devc.o $(build_dir)/model_c/lib0.o $(build_dir)/model_c/lib1.o
 TEST_MODEL_OBJ = $(build_dir)/test_model_c/devc.o $(build_dir)/test_model_c/lib0.o $(build_dir)/test_model_c/lib1.o
 
-all: demo_static
+all: demo_static $(build_dir)/demo_static_ws
 
 demo_dynamic: $(build_dir)/demo_dynamic $(build_dir)/bundle.so $(build_dir)/bundle_c.so $(build_dir)/bundle.so $(build_dir)/graph_cpp.json $(build_dir)/graph_c.json $(build_dir)/params_cpp.bin $(build_dir)/params_c.bin $(build_dir)/cat.bin
 	$(QUIET)TVM_NUM_THREADS=1 $(build_dir)/demo_dynamic $(build_dir)/bundle.so $(build_dir)/graph_cpp.json $(build_dir)/params_cpp.bin $(build_dir)/cat.bin
@@ -123,6 +124,10 @@ $(build_dir)/test_dynamic: test.cc ${build_dir}/test_graph_c.json ${build_dir}/t
 	$(QUIET)$(CXX) $(PKG_CXXFLAGS) -o $@ test.cc $(BACKTRACE_OBJS) $(BACKTRACE_LDFLAGS)
 
 $(build_dir)/demo_static: demo_static.c ${build_dir}/bundle_static.o $(MODEL_OBJ) ${build_dir}/libmemory.a ${build_dir}/libgraph_executor.a ${build_dir}/libcommon.a ${build_dir}/graph_c.json.c ${build_dir}/params_c.bin.c $(BACKTRACE_OBJS)
+	$(QUIET)mkdir -p $(@D)
+	$(QUIET)$(CC) $(PKG_CFLAGS) -o $@ $^ $(PKG_LDFLAGS) $(BACKTRACE_LDFLAGS) $(BACKTRACE_CFLAGS)
+
+$(build_dir)/demo_static_ws: demo_static_ws.c ${build_dir}/bundle_static.o $(MODEL_OBJ) ${build_dir}/libmemory.a ${build_dir}/libgraph_executor.a ${build_dir}/libcommon.a ${build_dir}/graph_c.json.c ${build_dir}/params_c.bin.c $(BACKTRACE_OBJS)
 	$(QUIET)mkdir -p $(@D)
 	$(QUIET)$(CC) $(PKG_CFLAGS) -o $@ $^ $(PKG_LDFLAGS) $(BACKTRACE_LDFLAGS) $(BACKTRACE_CFLAGS)
 
