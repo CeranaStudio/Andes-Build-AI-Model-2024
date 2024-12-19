@@ -21,12 +21,15 @@ import os
 import pathlib
 
 from mxnet import gluon
+# from mxnet.contrib import quantization
 from tvm import relay
 import tvm
 from tvm import runtime as tvm_runtime
 import logging
 from tvm.relay.backend import Runtime
 from tvm.contrib import cc as _cc
+from tvm.relay.quantize import quantize
+from tvm.relay import transform
 
 RUNTIMES = [
     (Runtime("crt", {"system-lib": True}), "{name}_c.{ext}"),
@@ -50,16 +53,104 @@ def build_module(opts):
 
     shape_dict = {"data": dshape}
     mod, params = relay.frontend.from_mxnet(load_net, shape_dict)
+
     func = mod["main"]
+
     func = relay.Function(
-        func.params, relay.nn.softmax(func.body), None, func.type_params, func.attrs
+        func.params,
+        relay.nn.softmax(func.body),
+        None,
+        func.type_params,
+        func.attrs
     )
+
+    with open("func.json", "w") as f:
+        print(func, file=f)
+
+    new_mod = tvm.IRModule.from_expr(func)
+
+    qconfig = {
+        # 'calibrate_mode': 'global_scale',
+        # 'global_scale': 4.0,
+        # 'dtype_input': 'int8',
+        # 'dtype_weight': 'int8',
+        'dtype_activation': 'int32',
+        # 'round_for_shift': True,
+        'partition_conversions': 'enabled',
+    }
+
+    with relay.quantize.qconfig(**qconfig):
+        seq = tvm.transform.Sequential([
+            relay.transform.SimplifyInference(),
+            relay.transform.FoldScaleAxis(),
+            relay.transform.FoldConstant(),
+            relay.transform.CanonicalizeOps(),
+            relay.transform.FoldConstant(),
+        ])
+        new_mod = seq(new_mod)
+        
+        new_mod = quantize(new_mod, params)
+
+        # concat all functions
+        # because the quantize pass will split the functions
+        funcs = {}
+        for gvar in new_mod.get_global_vars():
+            funcs[gvar.name_hint] = new_mod[gvar]
+        
+        if 'main' in funcs:
+            input_var = funcs['main'].params[0]
+            
+            body = input_var
+            
+            # 1. inline quantize_inputs
+            if 'quantize_inputs' in funcs:
+                quantize_body = funcs['quantize_inputs'].body
+
+                quantize_body = relay.Let(funcs['quantize_inputs'].params[0], 
+                                       body, 
+                                       relay.TupleGetItem(quantize_body, 0))
+                body = quantize_body
+            
+            # 2. inline quantized_main
+            if 'quantized_main' in funcs:
+                main_body = funcs['quantized_main'].body
+
+                main_body = relay.Let(funcs['quantized_main'].params[0], 
+                                    body, 
+                                    main_body)
+                body = main_body
+            
+            # 3. inline dequantize_outputs
+            if 'dequantize_outputs' in funcs:
+                dequant_body = funcs['dequantize_outputs'].body
+
+                dequant_body = relay.Let(funcs['dequantize_outputs'].params[0], 
+                                       body, 
+                                       dequant_body)
+                body = dequant_body
+            
+            # create new main function
+            new_main = relay.Function(
+                [input_var],
+                body,
+                funcs['main'].ret_type,
+                funcs['main'].type_params,
+                funcs['main'].attrs
+            )
+            
+            # create new module
+            new_mod = tvm.IRModule.from_expr(new_main)
+        
+    with open("new_mod_quantized.json", "w") as f:
+        print(new_mod, file=f)
+
+    print("[INFO] Finished quantization")
 
     target = tvm.target.Target("c")
 
     for runtime, file_format_str in RUNTIMES:
-        with tvm.transform.PassContext(config={"tir.disable_vectorize": True}):
-            graph, lib, params = relay.build(func, target=target, runtime=runtime, params=params)
+        with tvm.transform.PassContext(opt_level=3, config={"tir.disable_vectorize": True}):
+            graph, lib, params = relay.build(new_mod["main"], target=target, runtime=runtime, params=params)
 
         build_dir = os.path.abspath(opts.out_dir)
         if not os.path.isdir(build_dir):
