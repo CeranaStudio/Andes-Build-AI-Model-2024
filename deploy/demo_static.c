@@ -32,7 +32,7 @@ extern unsigned int build_graph_c_json_len;
 extern const char build_params_c_bin[];
 extern unsigned int build_params_c_bin_len;
 
-#define OUTPUT_LEN 1000
+#define OUTPUT_LEN 11
 
 int main(int argc, char** argv) {
   assert(argc == 2 && "Usage: demo_static <cat.bin>");

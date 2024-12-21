@@ -17,7 +17,7 @@
 
 # Makefile Example to bundle TVM modules.
 
-RISCV=1
+RISCV ?= 0
 
 # Setup build environment
 TVM_ROOT=$(shell cd ../3rdparty/tvm; pwd)
@@ -42,7 +42,7 @@ build_dir := build
 tvm_build_dir := $(TVM_ROOT)/build
 
 DMLC_CORE=${TVM_ROOT}/3rdparty/dmlc-core
-PKG_COMPILE_OPTS = -g -Wall -O2 -fPIC
+PKG_COMPILE_OPTS = -g -Wall -O3 -fPIC
 PKG_CXXFLAGS = ${PKG_COMPILE_OPTS} -std=c++17 \
 	-I${TVM_ROOT}/include \
 	-I${DMLC_CORE}/include \
@@ -56,6 +56,18 @@ PKG_CFLAGS = ${PKG_COMPILE_OPTS} \
 	-I${tvm_build_dir}/crt_config \
 	-DDMLC_USE_LOGGING_LIBRARY=\<tvm/runtime/logging.h\>
 
+RISCV_FLAGS = -march=rv64imafdcp \
+    -mabi=lp64d \
+	-mdiv \
+	-ftree-vectorize \
+    -ffast-math \
+    -funroll-loops \
+	-malign-data=xlen
+
+ifeq ($(RISCV),1)
+PKG_CXXFLAGS += $(RISCV_FLAGS) -I$(toolchain_dir)/nds64le-linux-glibc-v5d/lib/gcc/riscv64-linux/12.2.0/include/
+PKG_CFLAGS += $(RISCV_FLAGS) -I$(toolchain_dir)/nds64le-linux-glibc-v5d/lib/gcc/riscv64-linux/12.2.0/include/
+endif
 
 BACKTRACE_SRCS =
 BACKTRACE_LDFLAGS =
@@ -66,7 +78,8 @@ BACKTRACE_LDFLAGS += -ldl
 BACKTRACE_CFLAGS += -DENABLE_TVM_PLATFORM_ABORT_BACKTRACE
 $(endif)
 
-BACKTRACE_OBJS = $(patsubst %.c,$(build_dir)/%.o,$(BACKTRACE_SRCS))
+BACKTRACE_OBJS_ALL = $(patsubst %.c,$(build_dir)/%.o,$(BACKTRACE_SRCS))
+BACKTRACE_OBJS = $(filter-out $(build_dir)/demo_static_ws.o, $(BACKTRACE_OBJS_ALL))
 
 $(ifeq VERBOSE,1)
 QUIET ?=
@@ -74,10 +87,11 @@ $(else)
 QUIET ?= @
 $(endif)
 
+MODEL_SRC = $(build_dir)/model_c/devc.c $(build_dir)/model_c/lib0.c $(build_dir)/model_c/lib1.c
 MODEL_OBJ = $(build_dir)/model_c/devc.o $(build_dir)/model_c/lib0.o $(build_dir)/model_c/lib1.o
 TEST_MODEL_OBJ = $(build_dir)/test_model_c/devc.o $(build_dir)/test_model_c/lib0.o $(build_dir)/test_model_c/lib1.o
 
-all: demo_static
+all: demo_static $(build_dir)/demo_static_ws
 
 demo_dynamic: $(build_dir)/demo_dynamic $(build_dir)/bundle.so $(build_dir)/bundle_c.so $(build_dir)/bundle.so $(build_dir)/graph_cpp.json $(build_dir)/graph_c.json $(build_dir)/params_cpp.bin $(build_dir)/params_c.bin $(build_dir)/cat.bin
 	$(QUIET)TVM_NUM_THREADS=1 $(build_dir)/demo_dynamic $(build_dir)/bundle.so $(build_dir)/graph_cpp.json $(build_dir)/params_cpp.bin $(build_dir)/cat.bin
@@ -126,6 +140,10 @@ $(build_dir)/demo_static: demo_static.c ${build_dir}/bundle_static.o $(MODEL_OBJ
 	$(QUIET)mkdir -p $(@D)
 	$(QUIET)$(CC) $(PKG_CFLAGS) -o $@ $^ $(PKG_LDFLAGS) $(BACKTRACE_LDFLAGS) $(BACKTRACE_CFLAGS)
 
+$(build_dir)/demo_static_ws: demo_static_ws.c ${build_dir}/bundle_static.o $(MODEL_OBJ) ${build_dir}/libmemory.a ${build_dir}/libgraph_executor.a ${build_dir}/libcommon.a ${build_dir}/graph_c.json.c ${build_dir}/params_c.bin.c $(BACKTRACE_OBJS)
+	$(QUIET)mkdir -p $(@D)
+	$(QUIET)$(CC) $(PKG_CFLAGS) -o $@ $^ $(PKG_LDFLAGS) $(BACKTRACE_LDFLAGS) $(BACKTRACE_CFLAGS)
+
 $(build_dir)/test_static: test_static.c ${build_dir}/bundle_static.o $(TEST_MODEL_OBJ) ${build_dir}/libmemory.a ${build_dir}/libgraph_executor.a ${build_dir}/libcommon.a $(BACKTRACE_OBJS)
 	$(QUIET)mkdir -p $(@D)
 	$(QUIET)$(CC) $(PKG_CFLAGS) -o $@ $^ $(BACKTRACE_LDFLAGS)
@@ -148,10 +166,12 @@ $(build_dir)/params_c.bin.c: $(build_dir)/params_c.bin
 $(build_dir)/params_cpp.bin.c: $(build_dir)/params_cpp.bin
 	$(QUIET)xxd -i $^  > $@
 
-$(MODEL_OBJ) $(build_dir)/graph_c.json $(build_dir)/model_cpp.o $(build_dir)/graph_cpp.json $(build_dir)/params.bin $(build_dir)/cat.bin: build_model.py
+$(MODEL_SRC) $(build_dir)/graph_c.json $(build_dir)/graph_cpp.json: build_model.py
 	$(QUIET)python3 $< -o $(build_dir)
 	$(QUIET)mkdir -p build/model_c
 	$(QUIET)tar -C build/model_c -xvf build/model_c.tar
+
+$(MODEL_OBJ): $(MODEL_SRC)
 	$(QUIET)$(CXX) -c $(PKG_CXXFLAGS) build/model_c/lib0.c -o build/model_c/lib0.o  $(PKG_LDFLAGS)
 	$(QUIET)$(CXX) -c $(PKG_CXXFLAGS) build/model_c/lib1.c -o build/model_c/lib1.o  $(PKG_LDFLAGS)
 	$(QUIET)$(CXX) -c $(PKG_CXXFLAGS) build/model_c/devc.c -o build/model_c/devc.o  $(PKG_LDFLAGS)
@@ -183,10 +203,10 @@ $(build_dir)/bundle_static.o: bundle_static.c
 	$(QUIET)mkdir -p $(@D)
 	$(QUIET)$(CC) -c $(PKG_CFLAGS) -o $@  $^ $(BACKTRACE_CFLAGS) $(PKG_LDFLAGS)
 
-rebuild: $(build_dir)/model_c/lib0.c $(build_dir)/model_c/lib1.c $(build_dir)/model_c/devc.c
-	$(QUIET)$(CXX) -c $(PKG_CXXFLAGS) build/model_c/lib0.c -o build/model_c/lib0.o  $(PKG_LDFLAGS)
-	$(QUIET)$(CXX) -c $(PKG_CXXFLAGS) build/model_c/lib1.c -o build/model_c/lib1.o  $(PKG_LDFLAGS)
-	$(QUIET)$(CXX) -c $(PKG_CXXFLAGS) build/model_c/devc.c -o build/model_c/devc.o  $(PKG_LDFLAGS)
+rebuild: clean_model $(MODEL_SRC)
+	$(QUIET)$(MAKE) $(MODEL_OBJ)
+	$(QUIET)$(MAKE) $(build_dir)/demo_static
+	$(QUIET)$(MAKE) $(build_dir)/demo_static_ws
 
 run: demo_static
 	$(QUIET)$(build_dir)/demo_static $(build_dir)/cat.bin
@@ -194,6 +214,9 @@ run: demo_static
 clean:
 	$(QUIET)rm -rf $(build_dir)
 
+clean_model:
+	$(QUIET)rm -rf build/model_c/*.o
+	$(QUIET)rm -rf build/demo_static build/demo_static_ws
 # Don't define implicit rules; they tend to match on logical target names that aren't targets (i.e. bundle_static)
 .SUFFIXES:
 
