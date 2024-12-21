@@ -37,19 +37,23 @@ RUNTIMES = [
 ]
 
 
-def build_module(opts):
+def build_module(opts, custom_model=True):
     dshape = (1, 3, 224, 224)
     # from mxnet.gluon.model_zoo.vision import get_model
 
     # block = get_model("mobilenet0.25", pretrained=True)
-    curr_dir = os.getcwd()
-    symbol_file = os.path.join(curr_dir, "mobilenet_v2_0_25_custom.model-symbol.json")
-    params_file = os.path.join(curr_dir, "mobilenet_v2_0_25_custom.model-0000.params")
+    load_net = None
+    if custom_model:
+        curr_dir = os.getcwd()
+        symbol_file = os.path.join(curr_dir, "mobilenet_v2_0_75_food11.model-symbol.json")
+        params_file = os.path.join(curr_dir, "mobilenet_v2_0_75_food11.model-0000.params")
 
-    if not os.path.exists(symbol_file) or not os.path.exists(params_file):
-        raise FileNotFoundError("Model files not found")
+        if not os.path.exists(symbol_file) or not os.path.exists(params_file):
+            raise FileNotFoundError("Model files not found")
 
-    load_net = gluon.nn.SymbolBlock.imports(symbol_file, ['data'], params_file)
+        load_net = gluon.nn.SymbolBlock.imports(symbol_file, ['data'], params_file)
+    else:
+        load_net = gluon.model_zoo.vision.get_model("mobilenet0.75", pretrained=True)
 
     shape_dict = {"data": dshape}
     mod, params = relay.frontend.from_mxnet(load_net, shape_dict)
@@ -85,7 +89,7 @@ def build_module(opts):
             relay.transform.FoldScaleAxis(),
             relay.transform.FoldConstant(),
             relay.transform.CanonicalizeOps(),
-            relay.transform.FoldConstant(),
+            relay.transform.DeadCodeElimination(),
         ])
         new_mod = seq(new_mod)
         

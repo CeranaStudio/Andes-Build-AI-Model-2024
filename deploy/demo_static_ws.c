@@ -25,6 +25,10 @@
 #include <tvm/runtime/c_runtime_api.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+#include <string.h>
+#include <fcntl.h>
+#include <termios.h>
 
 #include "bundle.h"
 
@@ -34,26 +38,29 @@ extern unsigned int build_graph_c_json_len;
 extern const char build_params_c_bin[];
 extern unsigned int build_params_c_bin_len;
 
-#define OUTPUT_LEN 3
+#define OUTPUT_LEN 11
 
 #define LOADING_QUEUE_FILE "loadingQueue.txt"
 #define FINISH_QUEUE_FILE "finishQueue.txt"
 #define RESULT_FILE "result.csv"
+#define UART_DEVICE "/dev/ttySC4" // Replace with your actual UART device
 #define MAX_RESULTS 10
 #define BUFFER_SIZE 1024
+#define RETRY_COUNT 3
+#define RETRY_DELAY_MS 1000
 
 int getLargestId();
 void registerLoadingId(int id);
 void registerFinishId(int id);
-double generateRandomWeight();
+void configure_uart(int uart_fd);
+double pollWeight(int maxRetries, int retryDelayMs);
 void getCurrentTime(char *buffer, size_t bufferSize);
-void insertResult(int id, const char **nameList, const double *confidenceList, double weight, int count);
-void insertResult(int id, const char **nameList, const double *confidenceList, double weight, int count);
 void insertResult(int id, const char **nameList, const double *confidenceList, double weight, int count);
 void beginRecognition();
 void finishRecognition(const char **nameList, const double *confidenceList, double weight, int count);
+double getRandomWeight();
 
-const char *nameList[] = {"Apple", "Banana", "Cherry"};
+const char *nameList[] = {"Bread", "Dairy product", "Dessert", "Egg", "Fried food", "Meat", "Noodles-Pasta", "Rice", "Seafood", "Soup", "Vegetable-Fruit"};
 
 int main(int argc, char** argv) {
   srand(time(NULL));
@@ -121,10 +128,12 @@ int main(int argc, char** argv) {
 
   printf("The maximum position in output vector is: %d, with max-value %f.\n", max_index, max_iter);
 
-  double weight = generateRandomWeight();
+  double weight = pollWeight(RETRY_COUNT, RETRY_DELAY_MS);
+  printf("Weight: %f\n", weight);
   int count = sizeof(nameList) / sizeof(nameList[0]);
 
   finishRecognition(nameList, confidenceList, weight, count);
+  printf("Finish recognition\n");
 
   return 0;
 }
@@ -172,12 +181,54 @@ void registerFinishId(int id) {
     fclose(file);
 }
 
-double generateRandomConfidence() {
-    return ((double)rand() / RAND_MAX) * 0.9 + 0.1;
+void configure_uart(int uart_fd) {
+    struct termios options;
+    tcgetattr(uart_fd, &options);
+    options.c_cflag = CS8 | CLOCAL | CREAD; // 8N1: 8 data bits, no parity, 1 stop bit
+    options.c_iflag = IGNPAR;
+    options.c_oflag = 0;
+    options.c_lflag = 0;
+    tcflush(uart_fd, TCIFLUSH);
+    tcsetattr(uart_fd, TCSANOW, &options);
 }
 
-double generateRandomWeight() {
-    return ((double)rand() / RAND_MAX) * 100 + 0.5; // Random weight between 0.5 and 100.5
+double pollWeight(int maxRetries, int retryDelayMs) {
+    int uart_fd = open(UART_DEVICE, O_RDWR | O_NOCTTY);
+    if (uart_fd == -1) {
+        perror("Failed to open UART");
+        return 0;
+    }
+
+    configure_uart(uart_fd);
+
+    char buffer[BUFFER_SIZE];
+    double weight = -1;
+
+    for (int attempt = 0; attempt < maxRetries; attempt++) {
+        ssize_t bytes_read = read(uart_fd, buffer, sizeof(buffer) - 1);
+        if (bytes_read > 0) {
+            buffer[bytes_read] = '\0';
+            printf("Read weight: %s\n", buffer);
+            weight = atof(buffer);
+            if (weight > 0) {
+                break;
+            }
+        } else {
+            perror("Error reading from UART");
+        }
+
+        usleep(retryDelayMs * 1000);
+        printf("Retrying to read weight (%d/%d)...\n", attempt + 1, maxRetries);
+    }
+
+    close(uart_fd);
+
+    if (weight <= 0) {
+        fprintf(stderr, "Failed to retrieve valid weight after %d attempts\n", maxRetries);
+        return 0;
+    }
+
+    return weight;
 }
 
 void getCurrentTime(char *buffer, size_t bufferSize) {
@@ -229,4 +280,8 @@ void finishRecognition(const char **nameList, const double *confidenceList, doub
     insertResult(newId, nameList, confidenceList, weight, count);
     registerFinishId(newId);
     printf("Finish recognition for ID %d\n", newId);
+}
+
+double getRandomWeight() {
+    return (double)(rand() % 1000) / 1000.0;
 }
