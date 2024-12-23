@@ -139,10 +139,12 @@ $(build_dir)/test_dynamic: test.cc ${build_dir}/test_graph_c.json ${build_dir}/t
 $(build_dir)/demo_static: demo_static.c ${build_dir}/bundle_static.o $(MODEL_OBJ) ${build_dir}/libmemory.a ${build_dir}/libgraph_executor.a ${build_dir}/libcommon.a ${build_dir}/graph_c.json.c ${build_dir}/params_c.bin.c $(BACKTRACE_OBJS)
 	$(QUIET)mkdir -p $(@D)
 	$(QUIET)$(CC) $(PKG_CFLAGS) -o $@ $^ $(PKG_LDFLAGS) $(BACKTRACE_LDFLAGS) $(BACKTRACE_CFLAGS)
+	$(QUIET) cp $@ $(build_dir)/demo_static .
 
 $(build_dir)/demo_static_ws: demo_static_ws.c ${build_dir}/bundle_static.o $(MODEL_OBJ) ${build_dir}/libmemory.a ${build_dir}/libgraph_executor.a ${build_dir}/libcommon.a ${build_dir}/graph_c.json.c ${build_dir}/params_c.bin.c $(BACKTRACE_OBJS)
 	$(QUIET)mkdir -p $(@D)
 	$(QUIET)$(CC) $(PKG_CFLAGS) -o $@ $^ $(PKG_LDFLAGS) $(BACKTRACE_LDFLAGS) $(BACKTRACE_CFLAGS)
+	$(QUIET) cp $@ $(build_dir)/demo_static_ws .
 
 $(build_dir)/test_static: test_static.c ${build_dir}/bundle_static.o $(TEST_MODEL_OBJ) ${build_dir}/libmemory.a ${build_dir}/libgraph_executor.a ${build_dir}/libcommon.a $(BACKTRACE_OBJS)
 	$(QUIET)mkdir -p $(@D)
